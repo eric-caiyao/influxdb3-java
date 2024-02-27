@@ -21,11 +21,13 @@
  */
 package com.influxdb.v3.client.internal;
 
+import java.io.IOException;
 import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+//import java.net.http.HttpClient;
+//import java.net.http.HttpRequest;
+//import java.net.http.HttpResponse;
 import java.security.SecureRandom;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -39,6 +41,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.QueryStringEncoder;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHost;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.ByteArrayEntity;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,10 +75,10 @@ final class RestClient implements AutoCloseable {
 
     final String baseUrl;
     final String userAgent;
-    final HttpClient client;
-
+//    final HttpClient client;
+    org.apache.http.client.HttpClient apacheClient;
     private final ClientConfig config;
-    private final Map<String, String> defaultHeaders;
+    private Map<String, String> defaultHeaders;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     RestClient(@Nonnull final ClientConfig config) {
@@ -87,36 +95,48 @@ final class RestClient implements AutoCloseable {
         String host = config.getHost();
         this.baseUrl = host.endsWith("/") ? host : String.format("%s/", host);
 
+        HttpClientBuilder apacheClientBuild = HttpClientBuilder.create()
+                .setDefaultRequestConfig(
+                        RequestConfig.custom()
+                                .setConnectTimeout((int) config.getTimeout().toMillis())
+                                .setRedirectsEnabled(config.getAllowHttpRedirects())
+                                // .setProxy(new HttpHost()config.getProxy().) proxy暂时用不到，先不适配
+                                .build()
+                );
         // timeout and redirects
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .connectTimeout(config.getTimeout())
-                .followRedirects(config.getAllowHttpRedirects()
-                        ? HttpClient.Redirect.NORMAL : HttpClient.Redirect.NEVER);
+//        HttpClient.Builder builder = HttpClient.newBuilder()
+//                .connectTimeout(config.getTimeout())
+//                .followRedirects(config.getAllowHttpRedirects()
+//                        ? HttpClient.Redirect.NORMAL : HttpClient.Redirect.NEVER);
 
         // default headers
-        this.defaultHeaders = config.getHeaders() != null ? Map.copyOf(config.getHeaders()) : null;
-
-        // proxy
-        if (config.getProxy() != null) {
-            builder.proxy(config.getProxy());
-            if (config.getAuthenticator() != null) {
-                builder.authenticator(config.getAuthenticator());
-            }
+        if(config.getHeaders() != null){
+            this.defaultHeaders = new HashMap<>(config.getHeaders());;
         }
+//        this.defaultHeaders = config.getHeaders() != null ? Map.copyOf(config.getHeaders()) : null;
 
-        if (baseUrl.startsWith("https")) {
-            try {
-                if (config.getDisableServerCertificateValidation()) {
-                    SSLContext sslContext = SSLContext.getInstance("TLS");
-                    sslContext.init(null, TRUST_ALL_CERTS, new SecureRandom());
-                    builder.sslContext(sslContext);
-                }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
+        // proxy  目前没有proxy场景，不需要使用
+//        if (config.getProxy() != null) {
+//            builder.proxy(config.getProxy());
+//            if (config.getAuthenticator() != null) {
+//                builder.authenticator(config.getAuthenticator());
+//            }
+//        }
+        // 目前内部都是http请求，不需要使用
+//        if (baseUrl.startsWith("https")) {
+//            try {
+//                if (config.getDisableServerCertificateValidation()) {
+//                    SSLContext sslContext = SSLContext.getInstance("TLS");
+//                    sslContext.init(null, TRUST_ALL_CERTS, new SecureRandom());
+//                    builder.sslContext(sslContext);
+//                }
+//            } catch (Exception e) {
+//                throw new RuntimeException(e);
+//            }
+//        }
 
-        this.client = builder.build();
+//        this.client = builder.build();
+        this.apacheClient = apacheClientBuild.build();
     }
 
     void request(@Nonnull final String path,
@@ -125,6 +145,10 @@ final class RestClient implements AutoCloseable {
                  @Nullable final Map<String, String> headers,
                  @Nullable final Map<String, String> queryParams) {
 
+        if(HttpMethod.POST != method || data == null){
+            // 目前只有使用post的场景，其他的暂时先不支持
+            return;
+        }
         QueryStringEncoder uriEncoder = new QueryStringEncoder(String.format("%s%s", baseUrl, path));
         if (queryParams != null) {
             queryParams.forEach((name, value) -> {
@@ -133,73 +157,124 @@ final class RestClient implements AutoCloseable {
                 }
             });
         }
-
-        HttpRequest.Builder request = HttpRequest.newBuilder();
-
-        // uri
-        try {
-            request.uri(uriEncoder.toUri());
-        } catch (URISyntaxException e) {
-            throw new InfluxDBApiException(e);
-        }
-
-        // method and body
-        request.method(method.name(), data == null
-                ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(data));
-
-        // headers
+        HttpPost request = new HttpPost(uriEncoder.toString());
         if (defaultHeaders != null) {
             for (Map.Entry<String, String> entry : defaultHeaders.entrySet()) {
-                request.header(entry.getKey(), entry.getValue());
+                request.addHeader(entry.getKey(), entry.getValue());
             }
         }
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
-                request.header(entry.getKey(), entry.getValue());
+                request.addHeader(entry.getKey(), entry.getValue());
             }
         }
-        request.header("User-Agent", userAgent);
-        if (config.getToken() != null && config.getToken().length > 0) {
-            request.header("Authorization", String.format("Token %s", new String(config.getToken())));
-        }
+        request.addHeader("User-Agent", userAgent);
+        ByteArrayEntity entity = new ByteArrayEntity(data);
+        request.setEntity(entity);
+//        HttpRequest.Builder request = HttpRequest.newBuilder();
+        // uri
+//        try {
+//            request.uri(uriEncoder.toUri());
+//        } catch (URISyntaxException e) {
+//            throw new InfluxDBApiException(e);
+//        }
 
-        HttpResponse<String> response;
+        // method and body
+//        request.method(method.name(), data == null
+//                ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(data));
+
+        // headers
+//        if (defaultHeaders != null) {
+//            for (Map.Entry<String, String> entry : defaultHeaders.entrySet()) {
+//                request.header(entry.getKey(), entry.getValue());
+//            }
+//        }
+//        if (headers != null) {
+//            for (Map.Entry<String, String> entry : headers.entrySet()) {
+//                request.header(entry.getKey(), entry.getValue());
+//            }
+//        }
+//        request.header("User-Agent", userAgent);
+        // 鉴权目前使用不到，先不支持
+//        if (config.getToken() != null && config.getToken().length > 0) {
+//            request.header("Authorization", String.format("Token %s", new String(config.getToken())));
+//        }
+        org.apache.http.HttpResponse response;
         try {
-            response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
+            response = apacheClient.execute(request);
+        } catch (IOException e) {
             throw new InfluxDBApiException(e);
         }
+        int statusCode = response.getStatusLine().getStatusCode();
 
-        int statusCode = response.statusCode();
         if (statusCode < 200 || statusCode >= 300) {
-            String reason = "";
-            String body = response.body();
-            if (!body.isEmpty()) {
-                try {
-                    reason = objectMapper.readTree(body).get("message").asText();
-                } catch (JsonProcessingException e) {
-                    LOG.debug("Can't parse msg from response {}", response);
-                }
-            }
+//            String reason = "";
+            String body = response.getEntity().toString();
+            LOG.info(body);
+//            if (!body.isEmpty()) {
+//                try {
+//                    reason = objectMapper.readTree(body).get("message").asText();
+//                } catch (JsonProcessingException e) {
+//                    LOG.debug("Can't parse msg from response {}", response);
+//                }
+//            }
 
-            if (reason.isEmpty()) {
-                reason = Stream.of("X-Platform-Error-Code", "X-Influx-Error", "X-InfluxDb-Error")
-                        .map(name -> response.headers().firstValue(name).orElse(null))
-                        .filter(message -> message != null && !message.isEmpty()).findFirst()
-                        .orElse("");
-            }
-
-            if (reason.isEmpty()) {
-                reason = body;
-            }
-
-            if (reason.isEmpty()) {
-                reason = HttpResponseStatus.valueOf(statusCode).reasonPhrase();
-            }
-
-            String message = String.format("HTTP status code: %d; Message: %s", statusCode, reason);
-            throw new InfluxDBApiException(message);
+//            if (reason.isEmpty()) {
+//                reason = Stream.of("X-Platform-Error-Code", "X-Influx-Error", "X-InfluxDb-Error")
+//                        .map(response::getFirstHeader)
+//                        .filter(message -> message != null).findFirst()
+//                        .orElse(null);
+//            }
+//
+//            if (reason.isEmpty()) {
+//                reason = body;
+//            }
+//
+//            if (reason.isEmpty()) {
+//                reason = HttpResponseStatus.valueOf(statusCode).reasonPhrase();
+//            }
+//
+//            String message = String.format("HTTP status code: %d; Message: %s", statusCode, reason);
+//            throw new InfluxDBApiException();
         }
+
+//        HttpResponse<String> response;
+//        try {
+//            response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+//        } catch (Exception e) {
+//            throw new InfluxDBApiException(e);
+//        }
+//
+//        int statusCode = response.statusCode();
+//        if (statusCode < 200 || statusCode >= 300) {
+//            String reason = "";
+//            String body = response.body();
+//            if (!body.isEmpty()) {
+//                try {
+//                    reason = objectMapper.readTree(body).get("message").asText();
+//                } catch (JsonProcessingException e) {
+//                    LOG.debug("Can't parse msg from response {}", response);
+//                }
+//            }
+//
+//            if (reason.isEmpty()) {
+//                reason = Stream.of("X-Platform-Error-Code", "X-Influx-Error", "X-InfluxDb-Error")
+//                        .map(name -> response.headers().firstValue(name).orElse(null))
+//                        .filter(message -> message != null && !message.isEmpty()).findFirst()
+//                        .orElse("");
+//            }
+//
+//            if (reason.isEmpty()) {
+//                reason = body;
+//            }
+//
+//            if (reason.isEmpty()) {
+//                reason = HttpResponseStatus.valueOf(statusCode).reasonPhrase();
+//            }
+//
+//            String message = String.format("HTTP status code: %d; Message: %s", statusCode, reason);
+//            throw new InfluxDBApiException(message);
+//        }
     }
 
     @Override

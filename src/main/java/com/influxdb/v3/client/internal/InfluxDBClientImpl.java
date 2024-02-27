@@ -214,7 +214,7 @@ public final class InfluxDBClientImpl implements InfluxDBClient {
 
         WritePrecision precision = options.precisionSafe(config);
 
-        Map<String, String> queryParams = new HashMap<>() {{
+        Map<String, String> queryParams = new HashMap<String, String>() {{
             put("bucket", database);
             put("org", config.getOrganization());
             put("precision", precision.name().toLowerCase());
@@ -242,7 +242,8 @@ public final class InfluxDBClientImpl implements InfluxDBClient {
             return;
         }
 
-        Map<String, String> headers = new HashMap<>(Map.of("Content-Type", "text/plain; charset=utf-8"));
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type","text/plain; charset=utf-8");
         byte[] body = lineProtocol.getBytes(StandardCharsets.UTF_8);
         if (lineProtocol.length() >= options.gzipThresholdSafe(config)) {
             try {

@@ -31,6 +31,7 @@ import javax.annotation.concurrent.ThreadSafe;
 
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.util.Text;
 
 import com.influxdb.v3.client.PointValues;
@@ -61,10 +62,10 @@ final class VectorSchemaRootConverter {
                               @Nonnull final List<FieldVector> fieldVectors) {
         PointValues p = new PointValues();
         for (int i = 0; i < fieldVectors.size(); i++) {
-            var schema = vector.getSchema().getFields().get(i);
-            var value = fieldVectors.get(i).getObject(rowNumber);
-            var name = schema.getName();
-            var metaType = schema.getMetadata().get("iox::column::type");
+            Field schema = vector.getSchema().getFields().get(i);
+            Object value = fieldVectors.get(i).getObject(rowNumber);
+            String name = schema.getName();
+            String metaType = schema.getMetadata().get("iox::column::type");
 
             if (value instanceof Text) {
                 value = value.toString();

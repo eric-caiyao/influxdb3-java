@@ -230,7 +230,7 @@ public final class ClientConfig {
      * Validates the configuration properties.
      */
     public void validate() {
-        if (host == null || host.isBlank()) {
+        if (host == null || host.equals("")) {
             throw new IllegalArgumentException("The URL of the InfluxDB server has to be defined.");
         }
     }

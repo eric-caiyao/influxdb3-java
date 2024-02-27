@@ -625,7 +625,7 @@ public final class Point {
 
   private void appendTime(@Nonnull final StringBuilder sb, @Nullable final WritePrecision precision) {
 
-    var time = getTimestamp();
+    Number time = getTimestamp();
     if (time == null) {
       return;
     }

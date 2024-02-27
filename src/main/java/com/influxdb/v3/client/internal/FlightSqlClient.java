@@ -93,7 +93,7 @@ final class FlightSqlClient implements AutoCloseable {
                                      @Nonnull final String database,
                                      @Nonnull final QueryType queryType) {
 
-        Map<String, String> ticketData = new HashMap<>() {{
+        Map<String, String> ticketData = new HashMap<String,String>() {{
             put("database", database);
             put("sql_query", query);
             put("query_type", queryType.name().toLowerCase());
