@@ -47,6 +47,7 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -201,8 +202,11 @@ final class RestClient implements AutoCloseable {
 //        }
         org.apache.http.HttpResponse response;
         try {
+            LOG.error("start call: " + EntityUtils.toString(request.getEntity()));
             response = apacheClient.execute(request);
+            LOG.error("end call: " + EntityUtils.toString(response.getEntity()));
         } catch (IOException e) {
+            LOG.error("call error: " + e.getMessage());
             throw new InfluxDBApiException(e);
         }
         int statusCode = response.getStatusLine().getStatusCode();
