@@ -204,17 +204,14 @@ final class RestClient implements AutoCloseable {
         try {
             LOG.error("start call: " + EntityUtils.toString(request.getEntity()));
             response = apacheClient.execute(request);
-            LOG.error("end call: " + EntityUtils.toString(response.getEntity()));
         } catch (IOException e) {
             LOG.error("call error: " + e.getMessage());
             throw new InfluxDBApiException(e);
         }
         int statusCode = response.getStatusLine().getStatusCode();
-
+        LOG.error("status code: " + statusCode);
         if (statusCode < 200 || statusCode >= 300) {
 //            String reason = "";
-            String body = response.getEntity().toString();
-            LOG.info(body);
 //            if (!body.isEmpty()) {
 //                try {
 //                    reason = objectMapper.readTree(body).get("message").asText();
